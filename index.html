@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twisted Cube — كورس صناعة الألعاب</title>
+  <meta name="description" content="مادة شرح كورس Unity: دروس C# بأسلوب منظم، أساسيات واجهة المحرر، وأول لعبة بالعربي.">
+  <link rel="icon" href="assets/mark.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="فتح قائمة الدروس">القائمة</button>
+    <a class="brand" href="#/">
+      <img src="assets/logo-white.png" alt="Twisted Cube">
+      <span>كورس صناعة الألعاب</span>
+    </a>
+    <div class="top-actions">
+      <button id="presentBtn" class="ghost" type="button">وضع العرض</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside id="sidebar">
+      <div class="side-search">
+        <input id="search" type="search" placeholder="ابحث عن درس" autocomplete="off">
+      </div>
+      <nav id="nav" aria-label="الدروس"></nav>
+    </aside>
+    <div id="backdrop" hidden></div>
+    <main id="main"></main>
+  </div>
+
+  <div id="tryModal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="tryTitle">
+      <div class="modal-top">
+        <strong id="tryTitle">جرّب بنفسك</strong>
+        <button id="tryClose" class="text-btn" type="button">إغلاق</button>
+      </div>
+      <p class="modal-help">عدّل الكود واضغط تشغيل. النتيجة هنا محاكاة لنافذة Console، مش تشغيل Unity نفسه.</p>
+      <div class="modal-grid">
+        <textarea id="tryCode" spellcheck="false" aria-label="محرر الكود"></textarea>
+        <div id="tryOut"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="tryRun" class="btn-red" type="button">تشغيل</button>
+        <button id="tryReset" class="btn-line" type="button">إعادة المثال</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+
+  <script src="js/runner.js"></script>
+  <script src="js/course-csharp.js"></script>
+  <script src="js/course-unity.js"></script>
+  <script src="js/course-game.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
