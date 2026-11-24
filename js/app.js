@@ -128,6 +128,53 @@
     return null;
   }
 
+  function tx(value) { return window.TC.t(value); }
+
+  function isRtl() {
+    return document.documentElement.getAttribute("dir") !== "ltr";
+  }
+
+  function markTerms(value) {
+    var safe = escapeHtml(value);
+    if (!isRtl()) return safe;
+    return safe.replace(/[A-Za-z][A-Za-z0-9+#._]*(?:[ \t]*:[ \t]*[A-Za-z][A-Za-z0-9+#._]*|[ \t]+[A-Za-z][A-Za-z0-9+#._]*)*/g, function (word) {
+      var core = word.replace(/[.!?؟]+$/, "");
+      var tail = word.slice(core.length);
+      if (!core) return word;
+      return '<bdi dir="ltr">' + core + "</bdi>" + tail;
+    });
+  }
+
+  function splitSentences(text) {
+    var parts = [];
+    var buf = "";
+    var i;
+    for (i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      buf += ch;
+      if (ch !== "." && ch !== "!" && ch !== "?" && ch !== "؟") continue;
+      var prev = i > 0 ? text.charAt(i - 1) : "";
+      var next = text.charAt(i + 1);
+      if (ch === "." && /[A-Za-z0-9]/.test(prev) && /[A-Za-z0-9]/.test(next)) continue;
+      if (next !== "" && next !== " " && next !== "\n") continue;
+      parts.push(buf.replace(/\s+$/, ""));
+      buf = "";
+      while (text.charAt(i + 1) === " ") i++;
+    }
+    if (buf.replace(/\s/g, "")) parts.push(buf.replace(/^\s+|\s+$/g, ""));
+    return parts;
+  }
+
+  function htmlText(value) {
+    var raw = String(tx(value));
+    if (!isRtl()) return markTerms(raw);
+    var parts = splitSentences(raw);
+    if (parts.length < 2) return '<span class="sentence" dir="rtl">' + markTerms(raw) + "</span>";
+    return parts.map(function (part) {
+      return '<span class="sentence" dir="rtl">' + markTerms(part) + "</span>";
+    }).join("");
+  }
+
   function searchable(item) {
     var lesson = item.lesson;
     var blob = [item.track.title, item.group.title, lesson.title, lesson.w3 || "", (lesson.goals || []).join(" ")];
@@ -135,8 +182,17 @@
       if (block.text) blob.push(block.text);
       if (block.items) blob.push(block.items.join(" "));
       if (block.title) blob.push(block.title);
+      if (block.caption) blob.push(block.caption);
+      if (block.heads) blob.push(block.heads.join(" "));
+      if (block.rows) block.rows.forEach(function (row) { blob.push(row.join(" ")); });
+      if (block.type === "steps" && block.items) {
+        block.items.forEach(function (step) { blob.push(step.title + " " + step.body); });
+      }
     });
-    return blob.join(" ").toLowerCase();
+    (lesson.quiz || []).forEach(function (q) {
+      blob.push(q.q, (q.choices || []).join(" "), q.why || "");
+    });
+    return blob.map(function (part) { return part + " " + tx(part); }).join(" ").toLowerCase();
   }
 
   function renderNav() {
@@ -145,21 +201,21 @@
     var done = readDone();
     var html = "";
     if (!tracks.length) {
-      nav.innerHTML = '<p class="nav-empty">ملفات الدروس مش موجودة.</p>';
+      nav.innerHTML = '<p class="nav-empty">' + escapeHtml(window.TC.ui("navMissing")) + "</p>";
       return;
     }
     if (query) {
       var hits = list.filter(function (item) { return searchable(item).indexOf(query) >= 0; });
-      html += '<div class="group-label">نتائج البحث</div>';
-      if (!hits.length) html += '<p class="nav-empty">مفيش درس بالكلمة دي.</p>';
+      html += '<div class="group-label">' + escapeHtml(window.TC.ui("searchResults")) + "</div>";
+      if (!hits.length) html += '<p class="nav-empty">' + escapeHtml(window.TC.ui("searchEmpty")) + "</p>";
       hits.forEach(function (item) { html += linkHtml(item, done); });
       nav.innerHTML = html;
       return;
     }
     tracks.forEach(function (track) {
-      html += '<div class="track-label">' + escapeHtml(track.title) + "</div>";
+      html += '<div class="track-label">' + markTerms(tx(track.title)) + "</div>";
       track.groups.forEach(function (group) {
-        html += '<div class="group-label">' + escapeHtml(group.title) + "</div>";
+        html += '<div class="group-label">' + markTerms(tx(group.title)) + "</div>";
         group.lessons.forEach(function (lesson) {
           var item = list.filter(function (entry) {
             return entry.track.id === track.id && entry.lesson.id === lesson.id;
@@ -176,36 +232,38 @@
     var current = location.hash === "#/" + key;
     var cls = "lesson-link" + (current ? " active" : "") + (done[key] ? " done" : "");
     var num = item.number < 10 ? "0" + item.number : String(item.number);
-    return '<a class="' + cls + '" href="#/' + key + '"><small>' + num + "</small><span>" + escapeHtml(item.lesson.title) + "</span></a>";
+    return '<a class="' + cls + '" href="#/' + key + '"><small>' + num + "</small><span>" + markTerms(tx(item.lesson.title)) + "</span></a>";
   }
 
   function cell(value) {
-    var text = String(value);
+    var text = tx(value);
     if (/^[\x00-\x7F]+$/.test(text) && /[A-Za-z0-9()]/.test(text)) return '<span class="ltr">' + escapeHtml(text) + "</span>";
-    return escapeHtml(text);
+    return markTerms(text);
   }
 
   function consoleHtml(result, code) {
     var html = '<div class="console"><div class="console-bar"><b>Console</b></div>';
-    if (!result.ok && result.error) html += '<div class="log-error">' + escapeHtml(result.error) + "</div>";
+    if (!result.ok && result.error) html += '<div class="log-error">' + escapeHtml(tx(result.error)) + "</div>";
     result.logs.forEach(function (log) {
       var cls = log.kind === "muted" ? "log-muted" : "log";
-      html += '<div class="' + cls + '">' + escapeHtml(log.text) + "</div>";
+      html += '<div class="' + cls + '">' + escapeHtml(tx(log.text)) + "</div>";
     });
-    if (/void\s+Update/.test(code)) html += '<p class="run-hint">التجربة بتنادي Update مرة واحدة. في Unity الدالة دي بتتنده كل فريم.</p>';
-    else if (/void\s+Start/.test(code) || /void\s+Awake/.test(code)) html += '<p class="run-hint">التجربة بتنفّذ Awake ثم Start مرة واحدة، زي بداية التشغيل في Unity.</p>';
+    if (/void\s+Update/.test(code)) html += '<p class="run-hint">' + escapeHtml(window.TC.ui("hintUpdate")) + "</p>";
+    else if (/void\s+Start/.test(code) || /void\s+Awake/.test(code)) html += '<p class="run-hint">' + escapeHtml(window.TC.ui("hintStart")) + "</p>";
     html += "</div>";
     return html;
   }
 
   function renderCode(block) {
-    var html = '<section class="example"><div class="example-top"><strong>' + escapeHtml(block.title || "مثال") + '</strong><div class="example-actions">';
-    html += '<button class="btn-line" type="button" data-copy="1">نسخ</button>';
-    if (block.run) html += '<button class="btn-red" type="button" data-try="1">جرّب بنفسك</button>';
+    var code = window.TC.localizeCode(block.code || "");
+    var title = block.title ? tx(block.title) : window.TC.ui("example");
+    var html = '<section class="example"><div class="example-top"><strong>' + markTerms(title) + '</strong><div class="example-actions">';
+    html += '<button class="btn-line" type="button" data-copy="1">' + escapeHtml(window.TC.ui("copy")) + "</button>";
+    if (block.run) html += '<button class="btn-red" type="button" data-try="1">' + escapeHtml(window.TC.ui("tryIt")) + "</button>";
     html += "</div></div>";
-    html += "<pre>" + highlight(block.code || "") + "</pre>";
-    if (block.run && window.UnityRunner) html += consoleHtml(window.UnityRunner.run(block.code), block.code);
-    if (block.caption) html += '<p class="caption">' + escapeHtml(block.caption) + "</p>";
+    html += "<pre>" + highlight(code) + "</pre>";
+    if (block.run && window.UnityRunner) html += consoleHtml(window.UnityRunner.run(code), code);
+    if (block.caption) html += '<p class="caption">' + htmlText(block.caption) + "</p>";
     html += "</section>";
     return html;
   }
@@ -239,13 +297,13 @@
     } else if (block.variant === "console") {
       html += '<div class="console-fake">';
       (block.lines || []).forEach(function (line) {
-        html += '<div class="lv-' + escapeHtml(line.level || "info") + '">' + escapeHtml(line.text) + "</div>";
+        html += '<div class="lv-' + escapeHtml(line.level || "info") + '">' + escapeHtml(tx(line.text)) + "</div>";
       });
       html += "</div>";
     } else if (block.variant === "project") {
       html += '<div class="proj">';
       (block.lines || []).forEach(function (line) {
-        html += "<div>" + escapeHtml(line) + "</div>";
+        html += "<div>" + escapeHtml(tx(line)) + "</div>";
       });
       html += "</div>";
     } else {
@@ -266,15 +324,15 @@
       var insp = block.inspector || { name: "Player", tag: "Untagged", components: [] };
       html += '<div class="comp"><b>' + escapeHtml(insp.name || "Object") + "</b><div><span>Tag</span><span>" + escapeHtml(insp.tag || "Untagged") + "</span></div></div>";
       (insp.components || []).forEach(function (comp) {
-        html += '<div class="comp"><b>' + escapeHtml(comp.title) + "</b>";
+        html += '<div class="comp"><b>' + escapeHtml(tx(comp.title)) + "</b>";
         (comp.rows || []).forEach(function (row) {
-          html += "<div><span>" + escapeHtml(row[0]) + "</span><span>" + escapeHtml(row[1]) + "</span></div>";
+          html += "<div><span>" + escapeHtml(tx(row[0])) + "</span><span>" + escapeHtml(tx(row[1])) + "</span></div>";
         });
         html += "</div>";
       });
       html += "</div></section></div>";
     }
-    if (block.caption) html += '<p class="mock-cap">' + escapeHtml(block.caption) + "</p>";
+    if (block.caption) html += '<p class="mock-cap">' + htmlText(block.caption) + "</p>";
     html += "</section>";
     return html;
   }
@@ -282,18 +340,18 @@
   function renderBlocks(blocks) {
     var html = "";
     (blocks || []).forEach(function (block, index) {
-      if (block.type === "p") html += "<p>" + escapeHtml(block.text) + "</p>";
-      else if (block.type === "h") html += "<h2>" + escapeHtml(block.text) + "</h2>";
+      if (block.type === "p") html += "<p>" + htmlText(block.text) + "</p>";
+      else if (block.type === "h") html += "<h2>" + markTerms(tx(block.text)) + "</h2>";
       else if (block.type === "ul" || block.type === "ol") {
         html += "<" + block.type + ">";
-        block.items.forEach(function (item) { html += "<li>" + escapeHtml(item) + "</li>"; });
+        block.items.forEach(function (item) { html += "<li>" + htmlText(item) + "</li>"; });
         html += "</" + block.type + ">";
       } else if (block.type === "note" || block.type === "warn" || block.type === "ask") {
-        var label = block.type === "warn" ? "غلطة شائعة" : block.type === "ask" ? "سؤال للقاعة" : "مهم";
-        html += '<aside class="callout ' + block.type + '"><span class="tag">' + label + "</span>" + escapeHtml(block.text) + "</aside>";
+        var label = block.type === "warn" ? window.TC.ui("warnTag") : block.type === "ask" ? window.TC.ui("askTag") : window.TC.ui("noteTag");
+        html += '<aside class="callout ' + block.type + '"><span class="tag">' + escapeHtml(label) + "</span>" + htmlText(block.text) + "</aside>";
       } else if (block.type === "table") {
         html += '<div class="table-wrap"><table><thead><tr>';
-        block.heads.forEach(function (head) { html += "<th>" + escapeHtml(head) + "</th>"; });
+        block.heads.forEach(function (head) { html += "<th>" + markTerms(tx(head)) + "</th>"; });
         html += "</tr></thead><tbody>";
         block.rows.forEach(function (row) {
           html += "<tr>";
@@ -306,13 +364,13 @@
       } else if (block.type === "steps") {
         html += '<ol class="steps">';
         block.items.forEach(function (step, stepIndex) {
-          html += "<li><i>" + (stepIndex + 1) + "</i><div><strong>" + escapeHtml(step.title) + "</strong><p>" + escapeHtml(step.body) + "</p></div></li>";
+          html += "<li><i>" + (stepIndex + 1) + "</i><div><strong>" + htmlText(step.title) + "</strong><p>" + htmlText(step.body) + "</p></div></li>";
         });
         html += "</ol>";
       } else if (block.type === "checks") {
         html += '<ul class="checks">';
         block.items.forEach(function (item, checkIndex) {
-          html += '<li><button class="check" type="button" data-check="' + checkIndex + '"><i></i><span>' + escapeHtml(item) + "</span></button></li>";
+          html += '<li><button class="check" type="button" data-check="' + checkIndex + '"><i></i><span>' + htmlText(item) + "</span></button></li>";
         });
         html += "</ul>";
       } else if (block.type === "mock") html += renderMock(block);
@@ -321,7 +379,7 @@
   }
 
   function renderHome() {
-    document.title = "Twisted Cube — كورس صناعة الألعاب";
+    document.title = window.TC.ui("docTitle");
     var counts = {};
     tracks.forEach(function (track) {
       counts[track.id] = track.groups.reduce(function (sum, group) { return sum + group.lessons.length; }, 0);
@@ -330,69 +388,69 @@
     tracks.forEach(function (track) { first[track.id] = track.groups[0].lessons[0].id; });
     var html = '<article class="page">';
     html += '<section class="hero"><img src="assets/logo-white.png" alt="">';
-    html += "<div><h1>مادة شرح كورس Unity</h1>";
-    html += "<p>المدرّس يفتح الدرس قدام الطلبة: شرح بالعربي، مثال من سكربتات Unity، نتيجة في Console، زرار جرّب بنفسك، وكويز قصير على نفس الدرس.</p>";
+    html += "<div><h1>" + escapeHtml(window.TC.ui("homeTitle")) + "</h1>";
+    html += "<p>" + htmlText(window.TC.ui("homeLead")) + "</p>";
     html += '<div class="hero-actions">';
-    html += '<a href="#/csharp/' + first.csharp + '">ابدأ دروس C#</a>';
-    html += '<a href="#/unity/' + first.unity + '">ابدأ من واجهة Unity</a>';
-    html += '<a href="#/game/' + first.game + '">أول لعبة</a>';
+    html += '<a href="#/csharp/' + first.csharp + '">' + escapeHtml(window.TC.ui("startCsharp")) + "</a>";
+    html += '<a href="#/unity/' + first.unity + '">' + escapeHtml(window.TC.ui("startUnity")) + "</a>";
+    html += '<a href="#/game/' + first.game + '">' + escapeHtml(window.TC.ui("startGame")) + "</a>";
     html += "</div></div></section>";
-    html += "<h2>طريقة الشرح</h2>";
+    html += "<h2>" + escapeHtml(window.TC.ui("howTitle")) + "</h2>";
     html += '<div class="features">';
-    html += feature("نفس ترتيب دروس C#", "مقدمة، متغيرات، شروط، لوبس، دوال، وكائنات. الاسم الإنجليزي للدرس ظاهر عشان يربطوا بالمصطلح.");
-    html += feature("أمثلة سكربتات Unity", "Debug.Log، و MonoBehaviour، و float، و Inspector.");
-    html += feature("مثال + جرّب + كويز", "النتيجة تظهر تحت الكود. الجرّب يفتح محرر يشتغل في المتصفح. آخر الدرس ٣ أسئلة.");
-    html += feature("واجهة المحرر وأول لعبة", "Hierarchy و Scene و Game و Inspector والمكوّنات، وبعدين لعبة جمع عملات خطوة بخطوة.");
+    html += feature(window.TC.ui("feat1t"), window.TC.ui("feat1d"));
+    html += feature(window.TC.ui("feat2t"), window.TC.ui("feat2d"));
+    html += feature(window.TC.ui("feat3t"), window.TC.ui("feat3d"));
+    html += feature(window.TC.ui("feat4t"), window.TC.ui("feat4d"));
     html += "</div>";
-    html += "<h2>مسار الشرح</h2>";
+    html += "<h2>" + escapeHtml(window.TC.ui("pathTitle")) + "</h2>";
     html += '<div class="home-grid">';
     tracks.forEach(function (track, index) {
-      html += '<a class="path" href="#/' + track.id + "/" + first[track.id] + '"><div class="path-no">' + (index + 1) + "</div><div><b>" + escapeHtml(track.title) + "</b><span>" + counts[track.id] + " درس. " + escapeHtml(track.blurb) + "</span></div></a>";
+      html += '<a class="path" href="#/' + track.id + "/" + first[track.id] + '"><div class="path-no">' + (index + 1) + "</div><div><b>" + markTerms(tx(track.title)) + "</b><span>" + counts[track.id] + " " + escapeHtml(window.TC.ui("lessonWord")) + " " + htmlText(track.blurb) + "</span></div></a>";
     });
     html += "</div>";
-    html += '<aside class="callout ask"><span class="tag">اقتراح لأول حصة</span>القائمة مرتبة C# ثم الواجهة ثم اللعبة. لو الطلبة لسه فاتحين Unity أول مرة، ابدأ بدروس الواجهة عشان الأسماء تبقى على الشاشة، وبعدين ارجع لدروس C#.</aside>';
-    html += '<aside class="callout"><span class="tag">وضع العرض</span>زرار وضع العرض فوق بيكبّر الخط ويخبي القائمة عشان البروجيكتور. ارجعه لما تحب تتنقل. التقدم والكويز بيتسجلوا في المتصفح ده.</aside>';
+    html += '<aside class="callout ask"><span class="tag">' + escapeHtml(window.TC.ui("firstClassTag")) + "</span>" + escapeHtml(window.TC.ui("firstClass")) + "</aside>";
+    html += '<aside class="callout"><span class="tag">' + escapeHtml(window.TC.ui("presentTag")) + "</span>" + escapeHtml(window.TC.ui("presentHelp")) + "</aside>";
     html += "</article>";
     main.innerHTML = html;
     window.scrollTo(0, 0);
   }
 
   function feature(title, text) {
-    return '<article class="feature"><strong>' + title + "</strong><span>" + text + "</span></article>";
+    return '<article class="feature"><strong>' + markTerms(title) + "</strong><span>" + htmlText(text) + "</span></article>";
   }
 
   function renderLesson(trackId, lessonId) {
     var found = findLesson(trackId, lessonId);
     if (!found) {
-      main.innerHTML = '<article class="page"><h1>الدرس مش موجود</h1><p><a href="#/">ارجع للبداية</a></p></article>';
+      main.innerHTML = '<article class="page"><h1>' + escapeHtml(window.TC.ui("missingLesson")) + '</h1><p><a href="#/">' + escapeHtml(window.TC.ui("backHome")) + "</a></p></article>";
       return;
     }
     var item = found.item;
     var lesson = item.lesson;
-    document.title = lesson.title + " — Twisted Cube";
+    document.title = tx(lesson.title) + " — Twisted Cube";
     var key = lessonKey(trackId, lessonId);
     var html = '<article class="page" data-lesson="' + key + '">';
-    html += '<p class="crumbs"><a href="#/">البداية</a> / ' + escapeHtml(item.track.title) + " / " + escapeHtml(item.group.title) + "</p>";
-    html += '<p class="kicker">' + escapeHtml(lesson.w3 || item.track.short || "") + " · الدرس " + item.number + " من " + item.total + (lesson.minutes ? " · حوالي " + lesson.minutes + " دقايق" : "") + "</p>";
-    html += "<h1>" + escapeHtml(lesson.title) + "</h1>";
+    html += '<p class="crumbs"><a href="#/">' + escapeHtml(window.TC.ui("crumbHome")) + "</a> / " + markTerms(tx(item.track.title)) + " / " + markTerms(tx(item.group.title)) + "</p>";
+    html += '<p class="kicker">' + escapeHtml(lesson.w3 || item.track.short || "") + " · " + escapeHtml(window.TC.ui("lessonOf", item.number, item.total)) + (lesson.minutes ? " · " + escapeHtml(window.TC.ui("minutes", lesson.minutes)) : "") + "</p>";
+    html += "<h1>" + markTerms(tx(lesson.title)) + "</h1>";
     if (lesson.goals && lesson.goals.length) {
-      html += '<div class="goalbox"><strong>هنتعلم إيه</strong><ul>';
-      lesson.goals.forEach(function (goal) { html += "<li>" + escapeHtml(goal) + "</li>"; });
+      html += '<div class="goalbox"><strong>' + escapeHtml(window.TC.ui("learn")) + "</strong><ul>";
+      lesson.goals.forEach(function (goal) { html += "<li>" + htmlText(goal) + "</li>"; });
       html += "</ul></div>";
     }
     html += renderBlocks(lesson.blocks);
     if (lesson.quiz && lesson.quiz.length) {
-      html += '<section class="quiz" id="quiz"><h2>كويز الدرس</h2><p class="lead" id="quizProgress"></p><h3 id="quizQuestion"></h3><div id="quizOptions"></div><p class="quiz-why" id="quizWhy" hidden></p><div class="example-actions"><button class="btn-red" type="button" id="quizNext" hidden>السؤال اللي بعده</button><button class="btn-line" type="button" id="quizRetry" hidden>إعادة الكويز</button></div></section>';
+      html += '<section class="quiz" id="quiz"><h2>' + escapeHtml(window.TC.ui("quizTitle")) + '</h2><p class="lead" id="quizProgress"></p><h3 id="quizQuestion"></h3><div id="quizOptions"></div><p class="quiz-why" id="quizWhy" hidden></p><div class="example-actions"><button class="btn-red" type="button" id="quizNext" hidden>' + escapeHtml(window.TC.ui("quizNext")) + '</button><button class="btn-line" type="button" id="quizRetry" hidden>' + escapeHtml(window.TC.ui("quizRetry")) + "</button></div></section>";
     }
-    html += '<div class="mark-row"><button class="btn-line" type="button" id="markDone">تم شرح الدرس</button></div>';
+    html += '<div class="mark-row"><button class="btn-line" type="button" id="markDone">' + escapeHtml(window.TC.ui("markDone")) + "</button></div>";
     html += '<nav class="pager">';
     if (found.prev) {
       var prevKey = lessonKey(found.prev.track.id, found.prev.lesson.id);
-      html += '<a href="#/' + prevKey + '"><span>السابق</span>' + escapeHtml(found.prev.lesson.title) + "</a>";
+      html += '<a href="#/' + prevKey + '"><span>' + escapeHtml(window.TC.ui("prev")) + "</span>" + markTerms(tx(found.prev.lesson.title)) + "</a>";
     } else html += "<span></span>";
     if (found.next) {
       var nextKey = lessonKey(found.next.track.id, found.next.lesson.id);
-      html += '<a class="next" href="#/' + nextKey + '"><span>التالي</span>' + escapeHtml(found.next.lesson.title) + "</a>";
+      html += '<a class="next" href="#/' + nextKey + '"><span>' + escapeHtml(window.TC.ui("next")) + "</span>" + markTerms(tx(found.next.lesson.title)) + "</a>";
     }
     html += "</nav></article>";
     main.innerHTML = html;
@@ -411,7 +469,7 @@
 
   function openTry(code, title) {
     tryStarter = code;
-    tryTitle.textContent = title || "جرّب بنفسك";
+    tryTitle.textContent = title ? tx(title) : window.TC.ui("tryTitle");
     tryCode.value = code;
     modal.hidden = false;
     runEditor();
@@ -449,8 +507,8 @@
     if (!progress) return;
     if (quiz.done) {
       progress.textContent = "";
-      question.textContent = "النتيجة";
-      options.innerHTML = '<p class="quiz-score">' + quiz.score + " من " + quiz.items.length + "</p><p>لو سؤال وقع، ارجعوا للنقطة بتاعته في الشرح قبل الدرس الجاي.</p>";
+      question.textContent = window.TC.ui("quizResult");
+      options.innerHTML = '<p class="quiz-score">' + escapeHtml(window.TC.ui("quizScore", quiz.score, quiz.items.length)) + "</p><p>" + htmlText(window.TC.ui("quizResultBody")) + "</p>";
       why.hidden = true;
       next.hidden = true;
       retry.hidden = false;
@@ -458,14 +516,14 @@
       return;
     }
     var item = quiz.items[quiz.index];
-    progress.textContent = "سؤال " + (quiz.index + 1) + " من " + quiz.items.length;
-    question.textContent = item.q;
+    progress.textContent = window.TC.ui("quizProgress", quiz.index + 1, quiz.items.length);
+    question.innerHTML = htmlText(item.q);
     options.innerHTML = "";
     item.choices.forEach(function (choice, index) {
       var button = document.createElement("button");
       button.type = "button";
       button.className = "option";
-      button.textContent = choice;
+      button.innerHTML = markTerms(tx(choice));
       button.setAttribute("data-choice", String(index));
       options.appendChild(button);
     });
@@ -473,7 +531,7 @@
     why.textContent = "";
     next.hidden = true;
     retry.hidden = true;
-    next.textContent = quiz.index === quiz.items.length - 1 ? "شوف النتيجة" : "السؤال اللي بعده";
+    next.textContent = quiz.index === quiz.items.length - 1 ? window.TC.ui("quizSee") : window.TC.ui("quizNext");
   }
 
   function restoreChecks(key) {
@@ -530,12 +588,12 @@
       var blocks = currentBlocks();
       var block = blocks[Number(holder.getAttribute("data-snippet"))];
       if (copyBtn) {
-        var text = block.code;
+        var text = window.TC.localizeCode(block.code);
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(function () { showToast("اتنسخ"); }, function () { fallbackCopy(text); });
+          navigator.clipboard.writeText(text).then(function () { showToast(window.TC.ui("copied")); }, function () { fallbackCopy(text); });
         } else fallbackCopy(text);
       }
-      if (tryBtn) openTry(block.code, block.title || "جرّب بنفسك");
+      if (tryBtn) openTry(window.TC.localizeCode(block.code), block.title || "");
     }
     if (checkBtn) {
       checkBtn.classList.toggle("on");
@@ -559,7 +617,7 @@
       if (pickedIndex === item.a) activeQuiz.score++;
       var why = document.getElementById("quizWhy");
       why.hidden = false;
-      why.textContent = item.why;
+      why.innerHTML = htmlText(item.why);
       document.getElementById("quizNext").hidden = false;
     }
     if (event.target.id === "quizNext" && activeQuiz) {
@@ -578,7 +636,7 @@
     if (event.target.id === "markDone") {
       var article2 = main.querySelector("[data-lesson]");
       markDone(article2.getAttribute("data-lesson"));
-      showToast("الدرس اتعلّم كمقروء");
+      showToast(window.TC.ui("markedRead"));
     }
   });
 
@@ -587,8 +645,8 @@
     area.value = text;
     document.body.appendChild(area);
     area.select();
-    try { document.execCommand("copy"); showToast("اتنسخ"); }
-    catch (e) { showToast("انسخ الكود يدوي"); }
+    try { document.execCommand("copy"); showToast(window.TC.ui("copied")); }
+    catch (e) { showToast(window.TC.ui("copyFail")); }
     area.remove();
   }
 
@@ -603,6 +661,16 @@
     if (event.key === "Escape" && !modal.hidden) closeTry();
   });
 
+  document.getElementById("langBtn").addEventListener("click", function () {
+    window.TC.toggle();
+  });
+
+  window.TC_RERENDER = function () {
+    modal.hidden = true;
+    route();
+  };
+
   window.addEventListener("hashchange", route);
+  window.TC.applyChrome();
   route();
 })();
